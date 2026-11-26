@@ -124,6 +124,10 @@ dialog .db { padding: 18px; display: grid; gap: 16px; overflow-y: auto; }
 .bar .fill { height: 100%; background: var(--accent); }
 footer { color: var(--muted); font-size: 12px; text-align: center; }
 
+.switch { justify-self: start; display: inline-flex; background: var(--sunk); border-radius: 999px; padding: 3px; gap: 2px; }
+.switch button { appearance: none; border: 0; background: none; color: var(--muted); font: 600 14px var(--f-body); padding: 7px 18px; border-radius: 999px; cursor: pointer; }
+.switch button[aria-pressed="true"] { background: var(--surface); color: var(--fg); box-shadow: 0 1px 2px rgb(0 0 0 / .12); }
+.switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .today { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; display: grid; gap: 10px; }
 .today .when { font-size: 12px; color: var(--muted); letter-spacing: .04em; text-transform: uppercase; }
 .today p { margin: 0; font-size: 17px; line-height: 1.6; max-width: 68ch; text-wrap: pretty; }
@@ -157,6 +161,10 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
 </head>
 <body>
 <div class="wrap">
+  <div class="switch" role="group" aria-label="Piyasa">
+    <button type="button" id="m-crypto" data-m="crypto" aria-pressed="true">Kripto</button>
+    <button type="button" id="m-us" data-m="us" aria-pressed="false">ABD</button>
+  </div>
   <header class="top">
     <div>
       <h1>Field Notes</h1>
@@ -178,8 +186,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
 
   <section class="panel">
     <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:baseline">
-      <h2>Portföy ve BTC kıyası</h2>
-      <div class="legend"><span><i style="background:var(--accent)"></i>Portföy</span><span><i style="background:var(--bench)"></i>BTC tut-bekle</span></div>
+      <h2 id="chart-title">Portföy ve kıyas</h2>
+      <div class="legend"><span><i style="background:var(--accent)"></i>Portföy</span><span><i style="background:var(--bench)"></i><span id="bench-label">BTC</span> tut-bekle</span></div>
     </div>
     <div id="chart"></div>
   </section>
@@ -206,6 +214,15 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
 "use strict";
 const TZ = "Europe/Istanbul";
 let D = null;
+const MARKETS = {
+  crypto: { file: "data.json", name: "Kripto", bench: "BTC", asset: "Coin", schedule: "Her gün 09:00 · 17:00 · 01:00 (TSİ)", spark_label: "Son 7 gün (4 saatlik)",
+            parts: { trend: ["Trend", 25], momentum: ["Momentum", 20], volume: ["Hacim", 20], structure: ["Yapı", 15], derivatives: ["Türev", 10], volatility: ["Volatilite", 10] } },
+  us: { file: "us/data.json", name: "ABD", bench: "S&P 500", asset: "Hisse", schedule: "Hafta içi 18:30 · 23:30 (TSİ)", spark_label: "Son 2 ay (günlük)" },
+};
+let market = "crypto";
+try { market = localStorage.getItem("fn-market") || "crypto"; } catch (e) {}
+if (!MARKETS[market]) market = "crypto";
+const M = () => Object.assign({}, MARKETS[market], (D && D.market) || {});
 let tab = "ozet";
 try { tab = localStorage.getItem("fn-tab") || "ozet"; } catch (e) {}
 if (location.hash.length > 1) tab = location.hash.slice(1);
@@ -221,7 +238,7 @@ const safeUrl = (u) => /^https?:\/\//i.test(u || "") ? u : null;
 const REG = { RISK_ON: ["on", "Risk açık"], NEUTRAL: ["neu", "Nötr"], RISK_OFF: ["off", "Risk kapalı"] };
 const KIND = { entry: "ALIM", stop: "STOP", trail: "İZ STOP", breakeven: "BAŞA BAŞ", take_profit: "KÂR AL", time: "ZAMAN", signal: "SATIŞ", trim: "AZALT" };
 const VERD = { BUY: "AL", SELL: "SAT", TRIM: "AZALT", HOLD: "TUT", SKIP: "GEÇ" };
-const SLOT = { sabah: "Sabah", "akşam": "Akşam", gece: "Gece" };
+const SLOT = { sabah: "Sabah", "akşam": "Akşam", gece: "Gece", "açılış": "Açılış", "kapanış": "Kapanış" };
 
 function regimeChip(r) { const [c, t] = REG[r?.name] || ["", "—"]; return `<span class="chip ${c}">${t}</span>`; }
 
@@ -261,7 +278,7 @@ function equityChart(series, capital) {
   const line = (k) => pts.map((p, i) => (i ? "L" : "M") + x(p.ts).toFixed(1) + " " + y(p[k]).toFixed(1)).join("");
   const area = line("equity") + `L${x(pts[pts.length - 1].ts).toFixed(1)} ${y(lo)}L${x(pts[0].ts).toFixed(1)} ${y(lo)}Z`;
   const lp = pts[pts.length - 1];
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Portföy değeri ve BTC kıyası">
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Portföy değeri ve ${esc(M().bench)} kıyası">
     ${g}
     <path d="${area}" fill="var(--accent-soft)" opacity=".7"/>
     <path d="${line("btc_bench")}" fill="none" stroke="var(--bench)" stroke-width="2"/>
@@ -277,12 +294,12 @@ function header() {
   const st = D.status === "live" ? `<span class="chip live">Canlı · Gün ${day}/${D.rules.days}</span>`
     : D.status === "finished" ? `<span class="chip">Tamamlandı</span>` : `<span class="chip">Başlamadı</span>`;
   $("#chips").innerHTML = st + (D.latest ? regimeChip(D.latest.regime) : "");
-  $("#sub").textContent = D.latest ? `Son çalışma ${when(D.latest.ts)} · ${k.runs} çalışma` : "İlk çalışma bekleniyor";
+  $("#sub").textContent = D.latest ? `Son çalışma ${when(D.latest.ts)} · ${k.runs} çalışma · ${M().schedule}` : `İlk çalışma bekleniyor · ${M().schedule}`;
   const alpha = k.pnl_pct - k.btc_pct;
   const cells = [
     ["Portföy", usd(k.equity), `<span class="${cls(k.pnl_pct)}">${pct(k.pnl_pct, 2)}</span> · başlangıç ${usd(D.capital, 0)}`],
-    ["BTC tut-bekle", `<span class="${cls(k.btc_pct)}">${pct(k.btc_pct, 2)}</span>`, "aynı sürede"],
-    ["Fark", `<span class="${cls(alpha)}">${pct(alpha, 2)}</span>`, alpha >= 0 ? "BTC'nin önünde" : "BTC'nin gerisinde"],
+    [`${esc(M().bench)} tut-bekle`, `<span class="${cls(k.btc_pct)}">${pct(k.btc_pct, 2)}</span>`, "aynı sürede"],
+    ["Fark", `<span class="${cls(alpha)}">${pct(alpha, 2)}</span>`, alpha >= 0 ? "kıyasın önünde" : "kıyasın gerisinde"],
     ["Nakit", usd(k.cash), `maruziyet %${Math.round(k.exposure_pct)}`],
     ["En büyük düşüş", `<span class="${k.max_dd_pct > 0 ? "down" : ""}">${k.max_dd_pct ? "−" + k.max_dd_pct.toFixed(1).replace(".", ",") + "%" : "0%"}</span>`, "zirveden"],
     ["İşlem", `${k.n_trades}`, k.win_rate == null ? "kapanan yok" : `kazanma %${Math.round(k.win_rate)} · ${usd(k.realized_usd)}`],
@@ -290,7 +307,9 @@ function header() {
   $("#kpis").innerHTML = cells.map(([l, v, n]) => `<div class="kpi"><span class="lbl">${l}</span><span class="val">${v}</span><span class="note">${n}</span></div>`).join("");
   $("#chart").innerHTML = equityChart(D.equity, D.capital);
   today(); wallet();
-  $("#foot").textContent = `Sanal portföy deneyi. Gerçek para kullanılmıyor. Veri güncellendi: ${when(D.generated)}`;
+  $("#foot").textContent = `${M().name} · sanal portföy deneyi, gerçek para kullanılmıyor · veri güncellendi: ${when(D.generated)}`;
+  $("#bench-label").textContent = M().bench;
+  $("#chart-title").textContent = `Portföy ve ${M().bench} kıyası`;
 }
 
 function coinBtn(id, sym) { return `<button class="coin" data-coin="${esc(id)}">${esc((sym || id).toUpperCase())}</button>`; }
@@ -299,7 +318,7 @@ function reviewsTable(rv) {
   if (!rv?.length) return `<p class="muted">Bu çalışmada coin değerlendirmesi yok.</p>`;
   const order = { BUY: 0, SELL: 1, TRIM: 2, HOLD: 3, SKIP: 4 };
   rv = [...rv].sort((a, b) => (order[a.verdict] ?? 9) - (order[b.verdict] ?? 9) || (b.final_score ?? 0) - (a.final_score ?? 0));
-  return `<div class="tablewrap"><table><thead><tr><th>Coin</th><th>Karar</th><th class="n">Teknik</th><th class="n">Haber</th><th class="n">Nihai</th><th>Gerekçe</th></tr></thead><tbody>${
+  return `<div class="tablewrap"><table><thead><tr><th>${M().asset}</th><th>Karar</th><th class="n">Teknik</th><th class="n">Haber</th><th class="n">Nihai</th><th>Gerekçe</th></tr></thead><tbody>${
     rv.map((r) => `<tr><td>${coinBtn(r.id, r.symbol)}${r.catalyst ? ' <span class="pill p-TRIM">KATALİZÖR</span>' : ""}</td>
       <td><span class="pill p-${esc(r.verdict)}">${VERD[r.verdict] || esc(r.verdict)}</span>${r.conviction === "half" ? ' <span class="src">yarım</span>' : ""}</td>
       <td class="n">${r.tech_score ?? "—"}</td><td class="n ${cls(r.news_adj)}">${r.news_adj ? (r.news_adj > 0 ? "+" : "") + r.news_adj : "0"}</td>
@@ -348,9 +367,12 @@ function runBody(r) {
 
 function viewLatest() {
   const r = D.runs[0], L = D.latest;
-  if (!r && !L) return `<div class="panel empty">İlk analiz henüz yapılmadı. Çalışmalar her gün 09:00, 17:00 ve 01:00'de.</div>`;
+  if (!r && !L) return `<div class="panel empty">İlk analiz henüz yapılmadı. Çalışmalar: ${M().schedule}.</div>`;
   let ctx = "";
-  if (L) {
+  if (L && L.chips) {
+    ctx = `<section class="panel"><h2>Piyasa ortamı</h2><div class="chips">${regimeChip(L.regime)}${L.chips.map(([lbl, val, ch]) =>
+      `<span class="chip">${esc(lbl)}${val != null && val !== "" ? ` <span class="mono">${typeof val === "number" ? px(val) : esc(val)}</span>` : ""}${ch != null ? ` <span class="${cls(ch)}">${pct(ch)}</span>` : ""}</span>`).join("")}</div></section>`;
+  } else if (L) {
     const fg = L.fear_greed?.[0];
     const st = L.stablecoins;
     const m = L.macro || {};
@@ -366,10 +388,11 @@ function viewLatest() {
       ${mac}</div></section>`;
   }
   const run = r ? `<section class="panel"><div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:baseline"><h2>${SLOT[r.slot] || ""} analizi · ${when(r.ts)}</h2>${regimeChip(r.regime)}</div>${runBody(r)}</section>` : "";
-  const cands = L?.candidates?.length ? `<section class="panel"><h2>Teknik adaylar</h2><div class="tablewrap"><table><thead><tr><th>Coin</th><th class="n">Skor</th><th class="n">24s</th><th class="n">7g</th><th class="n">RSI 4s</th><th class="n">Hacim</th><th>Son 7 gün</th></tr></thead><tbody>${
-    L.candidates.map((c) => `<tr><td>${coinBtn(c.id, c.symbol)} <span class="src">#${c.rank}</span></td><td class="n"><b>${c.score}</b></td>
-      <td class="n ${cls(c.ret_24h)}">${pct(c.ret_24h)}</td><td class="n ${cls(c.ret_7d)}">${pct(c.ret_7d)}</td>
-      <td class="n">${c.rsi_4h == null ? "—" : Math.round(c.rsi_4h)}</td><td class="n">${c.vol_ratio == null ? "—" : c.vol_ratio.toFixed(1).replace(".", ",") + "×"}</td><td>${spark(c.spark)}</td></tr>`).join("")
+  const us = market === "us";
+  const cands = L?.candidates?.length ? `<section class="panel"><h2>Teknik adaylar</h2><div class="tablewrap"><table><thead><tr><th>${M().asset}</th><th class="n">Skor</th><th class="n">${us ? "1g" : "24s"}</th><th class="n">${us ? "5g" : "7g"}</th><th class="n">${us ? "RSI" : "RSI 4s"}</th><th class="n">Hacim</th><th>Grafik</th></tr></thead><tbody>${
+    L.candidates.map((c) => `<tr><td>${coinBtn(c.id, c.symbol)} <span class="src">${us ? esc(c.sector_tr || "") : "#" + c.rank}</span></td><td class="n"><b>${c.score}</b></td>
+      <td class="n ${cls(us ? c.ret_1d : c.ret_24h)}">${pct(us ? c.ret_1d : c.ret_24h)}</td><td class="n ${cls(us ? c.ret_5d : c.ret_7d)}">${pct(us ? c.ret_5d : c.ret_7d)}</td>
+      <td class="n">${(us ? c.rsi : c.rsi_4h) == null ? "—" : Math.round(us ? c.rsi : c.rsi_4h)}</td><td class="n">${c.vol_ratio == null ? "—" : c.vol_ratio.toFixed(1).replace(".", ",") + "×"}</td><td>${spark(c.spark)}</td></tr>`).join("")
   }</tbody></table></div></section>` : "";
   return ctx + run + cands;
 }
@@ -377,8 +400,8 @@ function viewLatest() {
 function viewPositions() {
   const P = D.positions;
   if (!P.length) return `<div class="panel empty">Açık pozisyon yok. Portföy tamamen nakitte.</div>`;
-  return `<section class="panel"><h2>Açık pozisyonlar</h2><div class="tablewrap"><table><thead><tr><th>Coin</th><th class="n">Değer</th><th class="n">K/Z</th><th class="n">Giriş</th><th class="n">Şimdi</th><th class="n">Stop</th><th class="n">Hedef</th><th>Son 7 gün</th><th>Neden alındı</th></tr></thead><tbody>${
-    P.map((p) => `<tr><td>${coinBtn(p.id, p.symbol)}<div class="src">${p.tier === "large" ? "büyük" : "küçük/orta"} · ${when(p.entry_ts)}</div></td>
+  return `<section class="panel"><h2>Açık pozisyonlar</h2><div class="tablewrap"><table><thead><tr><th>${M().asset}</th><th class="n">Değer</th><th class="n">K/Z</th><th class="n">Giriş</th><th class="n">Şimdi</th><th class="n">Stop</th><th class="n">Hedef</th><th>Grafik</th><th>Neden alındı</th></tr></thead><tbody>${
+    P.map((p) => `<tr><td>${coinBtn(p.id, p.symbol)}<div class="src">${market === "us" ? esc(p.sector || "") : p.tier === "large" ? "büyük" : "küçük/orta"} · ${when(p.entry_ts)}</div></td>
       <td class="n">${usd(p.value)}</td><td class="n ${cls(p.pnl_pct)}"><b>${pct(p.pnl_pct)}</b></td>
       <td class="n">${px(p.entry_price)}</td><td class="n">${px(p.last_price)}</td><td class="n">${px(p.stop)}</td>
       <td class="n">${p.tp_done ? '<span class="pill p-take_profit">ALINDI</span>' : px(p.tp_price)}</td><td>${spark(p.spark)}</td>
@@ -389,7 +412,7 @@ function viewPositions() {
 function viewTrades() {
   const T = D.trades;
   if (!T.length) return `<div class="panel empty">Henüz işlem yok.</div>`;
-  return `<section class="panel"><h2>İşlem defteri</h2><div class="tablewrap"><table><thead><tr><th>Zaman</th><th>Coin</th><th>Tür</th><th class="n">Fiyat</th><th class="n">Tutar</th><th class="n">K/Z</th><th>Not</th></tr></thead><tbody>${
+  return `<section class="panel"><h2>İşlem defteri</h2><div class="tablewrap"><table><thead><tr><th>Zaman</th><th>${M().asset}</th><th>Tür</th><th class="n">Fiyat</th><th class="n">Tutar</th><th class="n">K/Z</th><th>Not</th></tr></thead><tbody>${
     T.map((t) => `<tr><td class="mono" style="white-space:nowrap">${when(t.ts)}</td><td>${coinBtn(t.id, t.symbol)}</td>
       <td><span class="pill p-${t.kind}">${KIND[t.kind] || t.kind}</span></td><td class="n">${px(t.price)}</td><td class="n">${usd(t.usd)}</td>
       <td class="n ${cls(t.pnl_usd)}">${t.pnl_usd == null ? "" : usd(t.pnl_usd) + `<div class="src">${pct(t.pnl_pct)}</div>`}</td>
@@ -410,6 +433,7 @@ function viewRuns() {
 function viewRules() {
   const R = D.rules, r = R.risk, e = R.entry;
   const row = (a, b) => `<tr><td>${a}</td><td>${b}</td></tr>`;
+  if (D.rules_rows) return `<section class="panel"><h2>Sabit kurallar</h2><p class="muted" style="margin-top:0">Test başlamadan yazıldı, ${R.days} gün boyunca değişmez.</p><div class="tablewrap"><table><tbody>${D.rules_rows.map(([a, b]) => row(esc(a), esc(b))).join("")}</tbody></table></div></section>`;
   return `<section class="panel"><h2>Sabit kurallar</h2><p class="muted" style="margin-top:0">Test başlamadan yazıldı, ${R.days} gün boyunca değişmez.</p><div class="tablewrap"><table><tbody>
     ${row("Sermaye", usd(R.capital, 0) + " sanal")}
     ${row("Çalışma saatleri", "09:00 · 17:00 · 01:00 (TSİ)")}
@@ -438,13 +462,14 @@ function coinDialog(id) {
   $("#dlg-t").textContent = sym + (cand?.name || pos?.name ? " · " + (cand?.name || pos?.name) : "");
   let h = "";
   const sp = pos?.spark?.length ? pos.spark : cand?.spark;
-  if (sp?.length) h += `<div><p class="h3">Son 7 gün (4 saatlik)</p>${spark(sp, 560, 90).replace("<svg ", '<svg class="chart" ')}</div>`;
+  if (sp?.length) h += `<div><p class="h3">${esc(M().spark_label)}</p>${spark(sp, 560, 90).replace("<svg ", '<svg class="chart" ')}</div>`;
   if (pos) h += `<div class="chips"><span class="chip">Değer ${usd(pos.value)}</span><span class="chip ${pos.pnl_pct >= 0 ? "on" : "off"}">K/Z ${pct(pos.pnl_pct)}</span><span class="chip">Stop ${px(pos.stop)}</span></div>`;
   if (cand?.parts) {
-    const max = { trend: 25, momentum: 20, volume: 20, structure: 15, derivatives: 10, volatility: 10 };
-    const tr = { trend: "Trend", momentum: "Momentum", volume: "Hacim", structure: "Yapı", derivatives: "Türev", volatility: "Volatilite" };
+    const P = M().parts || {};
+    const max = Object.fromEntries(Object.entries(P).map(([k, v]) => [k, v[1]]));
+    const tr = Object.fromEntries(Object.entries(P).map(([k, v]) => [k, v[0]]));
     h += `<div><p class="h3">Teknik skor ${cand.score}/100</p><div class="bars">${Object.entries(cand.parts).map(([k, v]) =>
-      `<div class="bar"><span>${tr[k] || k}</span><span class="track"><span class="fill" style="display:block;width:${Math.round(v / max[k] * 100)}%"></span></span><span class="mono">${v}/${max[k]}</span></div>`).join("")}</div></div>`;
+      `<div class="bar"><span>${esc(tr[k] || k)}</span><span class="track"><span class="fill" style="display:block;width:${max[k] ? Math.round(v / max[k] * 100) : 0}%"></span></span><span class="mono">${v}/${max[k] ?? "?"}</span></div>`).join("")}</div></div>`;
     if (cand.deriv) h += `<div class="chips"><span class="chip">Funding (8s) <span class="mono">${cand.deriv.funding_8h_pct.toFixed(3)}%</span></span><span class="chip">OI <span class="mono">${usd(cand.deriv.oi_usd / 1e6, 1).replace(" $", " mn $")}</span></span>${cand.deriv.oi_chg_24h_pct != null ? `<span class="chip">OI 24s <span class="${cls(cand.deriv.oi_chg_24h_pct)}">${pct(cand.deriv.oi_chg_24h_pct)}</span></span>` : ""}</div>`;
   }
   if (hist.length) h += `<div><p class="h3">Kararlar</p><ul class="plain">${hist.slice(0, 8).map((v) => `<li><span class="pill p-${v.verdict}">${VERD[v.verdict] || v.verdict}</span> <span class="src">${when(v.ts)} · nihai ${v.final_score ?? "—"}</span><div class="reason">${esc(v.reason)}</div></li>`).join("")}</ul></div>`;
@@ -459,7 +484,7 @@ const COLORS = ["var(--accent)", "var(--bench)", "var(--up)", "#8a6fc4", "#c4708
 
 function today() {
   const r = D.runs[0];
-  if (!r) { $("#today").innerHTML = `<span class="when">Durum</span><p>İlk analiz bekleniyor. Çalışmalar her gün 09:00, 17:00 ve 01:00'de yapılıyor.</p>`; return; }
+  if (!r) { $("#today").innerHTML = `<span class="when">Durum</span><p>${market === "us" && D.status === "pending" ? "ABD testi 1 Aralık Salı 18:30'da başlayacak." : "İlk analiz bekleniyor."} Çalışmalar: ${esc(M().schedule)}.</p>`; return; }
   $("#today").innerHTML = `<span class="when">${SLOT[r.slot] || ""} · ${when(r.ts)}</span><p>${esc(r.simple_summary || r.market_view)}</p>${issuesBlock(r)}`;
 }
 
@@ -482,7 +507,7 @@ function wallet() {
       <span class="wname"><button class="coin" data-coin="${esc(p.id)}">${esc(p.name)}</button><span>${qty(p.qty)} ${esc(p.symbol.toUpperCase())} · alış ${px(p.entry_price)} $</span></span>
       <span class="wval wpnl ${cls(p.pnl_pct)}">${pct(p.pnl_pct)}<small>${usd(p.value - p.qty * p.entry_price)}</small></span>
       <span class="wval">${usd(p.value)}<small>%${share(p.value)}</small></span></div>`).join("");
-  const cashRow = `<div class="wrow"><span class="wbadge cash">USDT</span><span class="wname"><b>Nakit</b><span>harcanmamış para</span></span>
+  const cashRow = `<div class="wrow"><span class="wbadge cash">${market === "us" ? "USD" : "USDT"}</span><span class="wname"><b>Nakit</b><span>harcanmamış para</span></span>
       <span class="wval wpnl"></span><span class="wval">${usd(k.cash)}<small>%${share(k.cash)}</small></span></div>`;
   $("#wallet").innerHTML = bar + legend + `<div class="wallet">${coinRows}${cashRow}</div>`;
   $("#wallet-total").innerHTML = `Toplam <b class="mono">${usd(eq)}</b>`;
@@ -527,7 +552,7 @@ function viewShadow() {
   const G = S.groups;
   const card = (lbl, g, note) => g ? `<div class="stat"><span class="lbl">${lbl}</span><span class="big ${cls(g.avg_ret_pct)}">${pct(g.avg_ret_pct, 2)}</span>
       <span class="src">${g.n} seçim · ${g.open} hâlâ açık · %${Math.round(g.win_rate)} kârda</span>
-      <span class="src">aynı sürelerde BTC: <span class="${cls(g.avg_btc_pct)}">${pct(g.avg_btc_pct, 2)}</span></span><span class="src">${note}</span></div>` : "";
+      <span class="src">aynı sürelerde ${esc(M().bench)}: <span class="${cls(g.avg_btc_pct)}">${pct(g.avg_btc_pct, 2)}</span></span><span class="src">${note}</span></div>` : "";
   const rows = S.picks.map((x) => `<tr><td class="mono" style="white-space:nowrap">${when(x.ts)}</td><td>${coinBtn(x.coin_id, x.symbol)}</td>
       <td><span class="pill p-${x.group === "al" ? "BUY" : "SKIP"}">${x.group === "al" ? "AL" : "GEÇ"}</span></td>
       <td class="n ${cls(x.ret_pct)}"><b>${pct(x.ret_pct, 1)}</b></td><td class="n ${cls(x.btc_ret_pct)}">${pct(x.btc_ret_pct, 1)}</td>
@@ -535,7 +560,7 @@ function viewShadow() {
   return `<section class="panel"><h2>Seçimler doğru mu?</h2>
     <p class="muted" style="margin-top:0;max-width:70ch">Claude'un "al" ve "geç" dediği her coin, gerçekten alınsın ya da alınmasın, kâğıt üzerinde ${S.size} $ ile alınmış sayılıp aynı stop ve kâr alma kurallarıyla takip ediliyor. Risk limitleri yüzünden para kullanılmasa bile seçimlerin isabeti buradan görülüyor.</p>
     <div class="stats">${card("“Al” dediklerinin ortalaması", G.al, "Bunun “geç” dediklerinden yüksek olması iyi.")}${card("“Geç” dediklerinin ortalaması", G.gec, "Burası düşükse elemeler doğru.")}</div></section>
-    <section class="panel"><h2>Tüm seçimler</h2><div class="tablewrap"><table><thead><tr><th>Ne zaman</th><th>Coin</th><th>Karar</th><th class="n">Sonuç</th><th class="n">BTC aynı sürede</th><th>Durum</th><th>Gerekçe</th></tr></thead><tbody>${rows}</tbody></table></div></section>`;
+    <section class="panel"><h2>Tüm seçimler</h2><div class="tablewrap"><table><thead><tr><th>Ne zaman</th><th>${M().asset}</th><th>Karar</th><th class="n">Sonuç</th><th class="n">${esc(M().bench)} aynı sürede</th><th>Durum</th><th>Gerekçe</th></tr></thead><tbody>${rows}</tbody></table></div></section>`;
 }
 
 function render() {
@@ -553,14 +578,29 @@ document.addEventListener("click", (e) => { const c = e.target.closest("[data-co
 $("#dlg-x").addEventListener("click", () => $("#dlg").close());
 $("#dlg").addEventListener("click", (e) => { if (e.target.id === "dlg") $("#dlg").close(); });
 
+function paintSwitch() {
+  document.querySelectorAll(".switch button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.m === market)));
+}
+
+document.querySelector(".switch").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b || b.dataset.m === market) return;
+  market = b.dataset.m; try { localStorage.setItem("fn-market", market); } catch (err) {}
+  paintSwitch(); D = null; $("#sub").textContent = "Yükleniyor…"; load();
+});
+
 async function load() {
+  paintSwitch();
+  const want = market;
   try {
-    const r = await fetch("data.json?t=" + Date.now(), { cache: "no-store" });
+    const r = await fetch(MARKETS[want].file + "?t=" + Date.now(), { cache: "no-store" });
     if (!r.ok) throw new Error("HTTP " + r.status);
-    D = await r.json();
+    const data = await r.json();
+    if (want !== market) return;
+    D = data;
     header(); render();
   } catch (e) {
-    $("#sub").textContent = "Veri yüklenemedi (" + e.message + "). Sayfayı yenileyin.";
+    if (want !== market) return;
+    $("#sub").textContent = market === "us" ? "ABD verisi henüz yayınlanmadı." : "Veri yüklenemedi (" + e.message + "). Sayfayı yenileyin.";
   }
 }
 load();
