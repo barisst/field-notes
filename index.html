@@ -484,7 +484,7 @@ const COLORS = ["var(--accent)", "var(--bench)", "var(--up)", "#8a6fc4", "#c4708
 
 function today() {
   const r = D.runs[0];
-  if (!r) { $("#today").innerHTML = `<span class="when">Durum</span><p>${market === "us" && D.status === "pending" ? "ABD testi 1 Aralık Salı 18:30'da başlayacak." : "İlk analiz bekleniyor."} Çalışmalar: ${esc(M().schedule)}.</p>`; return; }
+  if (!r) { $("#today").innerHTML = `<span class="when">Durum</span><p>${market === "us" && D.status === "pending" ? "ABD testi borsanın açık olduğu ilk çalışmada başlayacak (27 Kasım Cuma 18:30, yarım gün)." : "İlk analiz bekleniyor."} Çalışmalar: ${esc(M().schedule)}.</p>`; return; }
   $("#today").innerHTML = `<span class="when">${SLOT[r.slot] || ""} · ${when(r.ts)}</span><p>${esc(r.simple_summary || r.market_view)}</p>${issuesBlock(r)}`;
 }
 
