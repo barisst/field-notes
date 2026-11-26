@@ -123,6 +123,34 @@ dialog .db { padding: 18px; display: grid; gap: 16px; overflow-y: auto; }
 .bar .track { height: 6px; background: var(--sunk); border-radius: 3px; overflow: hidden; }
 .bar .fill { height: 100%; background: var(--accent); }
 footer { color: var(--muted); font-size: 12px; text-align: center; }
+
+.today { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; display: grid; gap: 10px; }
+.today .when { font-size: 12px; color: var(--muted); letter-spacing: .04em; text-transform: uppercase; }
+.today p { margin: 0; font-size: 17px; line-height: 1.6; max-width: 68ch; text-wrap: pretty; }
+.issue { padding: 8px 12px; border-radius: 6px; background: var(--warn-soft); color: var(--warn); font-size: 13.5px; }
+
+.wallet { display: grid; gap: 0; }
+.wrow { display: grid; grid-template-columns: 44px minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.wrow:last-child { border-bottom: 0; }
+.wbadge { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font: 600 11px var(--f-mono); background: var(--accent-soft); color: var(--accent); letter-spacing: -.02em; overflow: hidden; }
+.wbadge.cash { background: var(--sunk); color: var(--muted); }
+.wname { min-width: 0; display: grid; justify-items: start; }
+.wname span { font-size: 12.5px; color: var(--muted); font-family: var(--f-mono); }
+.wval { text-align: right; font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.wval small { display: block; font-size: 12px; color: var(--muted); }
+.alloc { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--sunk); margin-bottom: 8px; }
+.alloc span { display: block; height: 100%; }
+@media (max-width: 560px) { .wrow { grid-template-columns: 40px minmax(0, 1fr) minmax(0, 1fr); } .wrow .wpnl { display: none; } }
+
+.day { display: grid; gap: 10px; }
+.day h3 { margin: 0; font: 600 18px var(--f-display); display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; }
+.entry { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: grid; gap: 8px; }
+.entry .meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12.5px; color: var(--muted); }
+.entry p { margin: 0; font-size: 15.5px; max-width: 70ch; text-wrap: pretty; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.stat { background: var(--sunk); border-radius: 8px; padding: 14px; display: grid; gap: 4px; }
+.stat .lbl { font-size: 12.5px; color: var(--muted); }
+.stat .big { font: 500 24px var(--f-mono); }
 @media (max-width: 560px) { .wrap { padding-inline: 16px; } .kpi .val { font-size: 19px; } }
 @media (prefers-reduced-motion: no-preference) { .fill { transition: width .4s ease; } }
 </style>
@@ -137,7 +165,16 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
     <div class="chips" id="chips"></div>
   </header>
 
+  <section class="today" id="today" aria-label="Son durum"></section>
+
   <section class="kpis" id="kpis" aria-label="Özet"></section>
+
+  <section class="panel">
+    <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:baseline">
+      <h2>Cüzdan</h2><span class="muted" id="wallet-total"></span>
+    </div>
+    <div id="wallet"></div>
+  </section>
 
   <section class="panel">
     <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:baseline">
@@ -148,9 +185,11 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
   </section>
 
   <nav class="tabs" role="tablist" aria-label="Bölümler">
-    <button role="tab" id="t-latest" aria-selected="true" data-v="latest">Son analiz</button>
+    <button role="tab" id="t-ozet" aria-selected="true" data-v="ozet">Günlük özet</button>
+    <button role="tab" id="t-latest" aria-selected="false" data-v="latest">Son analiz</button>
     <button role="tab" id="t-pos" aria-selected="false" data-v="pos">Pozisyonlar</button>
     <button role="tab" id="t-trades" aria-selected="false" data-v="trades">İşlemler</button>
+    <button role="tab" id="t-golge" aria-selected="false" data-v="golge">Gölge takip</button>
     <button role="tab" id="t-runs" aria-selected="false" data-v="runs">Geçmiş</button>
     <button role="tab" id="t-rules" aria-selected="false" data-v="rules">Kurallar</button>
   </nav>
@@ -167,14 +206,14 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
 "use strict";
 const TZ = "Europe/Istanbul";
 let D = null;
-let tab = "latest";
-try { tab = localStorage.getItem("fn-tab") || "latest"; } catch (e) {}
+let tab = "ozet";
+try { tab = localStorage.getItem("fn-tab") || "ozet"; } catch (e) {}
 if (location.hash.length > 1) tab = location.hash.slice(1);
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const usd = (v, d = 2) => v == null ? "—" : v.toLocaleString("tr-TR", { minimumFractionDigits: d, maximumFractionDigits: d }) + " $";
-const px = (v) => v == null ? "—" : v >= 100 ? v.toLocaleString("tr-TR", { maximumFractionDigits: 2 }) : v >= 1 ? v.toFixed(4) : Number(v.toPrecision(4)).toString();
+const px = (v) => v == null ? "—" : v >= 100 ? v.toLocaleString("tr-TR", { maximumFractionDigits: 2 }) : v >= 1 ? v.toLocaleString("tr-TR", { maximumFractionDigits: 4 }) : v.toLocaleString("tr-TR", { maximumSignificantDigits: 4 });
 const pct = (v, d = 1) => v == null ? "—" : (v > 0 ? "+" : "") + v.toFixed(d).replace(".", ",") + "%";
 const cls = (v) => v == null ? "" : v > 0 ? "up" : v < 0 ? "down" : "";
 const when = (ts, opts) => new Date(ts).toLocaleString("tr-TR", Object.assign({ timeZone: TZ, day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }, opts || {}));
@@ -250,6 +289,7 @@ function header() {
   ];
   $("#kpis").innerHTML = cells.map(([l, v, n]) => `<div class="kpi"><span class="lbl">${l}</span><span class="val">${v}</span><span class="note">${n}</span></div>`).join("");
   $("#chart").innerHTML = equityChart(D.equity, D.capital);
+  today(); wallet();
   $("#foot").textContent = `Sanal portföy deneyi. Gerçek para kullanılmıyor. Veri güncellendi: ${when(D.generated)}`;
 }
 
@@ -292,8 +332,14 @@ function actionsBlock(r) {
   return h;
 }
 
+function issuesBlock(r) {
+  return (r.issues || []).filter(Boolean).map((x) => `<div class="issue">Sistem notu: ${esc(x)}</div>`).join("");
+}
+
 function runBody(r) {
-  return `<p class="lead">${esc(r.market_view) || '<span class="muted">Yorum yok.</span>'}</p>
+  return `${r.simple_summary ? `<div><p class="h3">Kısaca</p><p class="lead">${esc(r.simple_summary)}</p></div><p class="h3" style="margin-bottom:-8px">Analist notu</p>` : ""}
+    <p class="lead">${esc(r.market_view) || '<span class="muted">Yorum yok.</span>'}</p>
+    ${issuesBlock(r)}
     ${r.macro_event_risk ? '<div class="ev" style="background:var(--warn-soft);color:var(--warn)">Yakın makro olay riski: yeni pozisyonlar yarım boyutla.</div>' : ""}
     <div class="grid2"><div>${actionsBlock(r)}</div>
       <div style="display:grid;gap:16px"><div><p class="h3">Makro</p>${newsList(r.macro_notes)}</div><div><p class="h3">İncelenen haberler</p>${newsList(r.news)}</div></div></div>
@@ -409,10 +455,93 @@ function coinDialog(id) {
   $("#dlg").showModal();
 }
 
+const COLORS = ["var(--accent)", "var(--bench)", "var(--up)", "#8a6fc4", "#c4708f", "#4fa3a0", "#a3884f", "#6b84c9"];
+
+function today() {
+  const r = D.runs[0];
+  if (!r) { $("#today").innerHTML = `<span class="when">Durum</span><p>İlk analiz bekleniyor. Çalışmalar her gün 09:00, 17:00 ve 01:00'de yapılıyor.</p>`; return; }
+  $("#today").innerHTML = `<span class="when">${SLOT[r.slot] || ""} · ${when(r.ts)}</span><p>${esc(r.simple_summary || r.market_view)}</p>${issuesBlock(r)}`;
+}
+
+function qty(q) {
+  if (q >= 1000) return q.toLocaleString("tr-TR", { maximumFractionDigits: 0 });
+  if (q >= 1) return q.toLocaleString("tr-TR", { maximumFractionDigits: 3 });
+  return q.toLocaleString("tr-TR", { maximumSignificantDigits: 4 });
+}
+
+function wallet() {
+  const k = D.kpis, eq = k.equity || 0;
+  const share = (v) => eq ? (v / eq * 100).toFixed(1).replace(".", ",") : "0";
+  const rows = D.positions.slice().sort((a, b) => b.value - a.value);
+  const items = rows.map((p, i) => ({ label: p.symbol.toUpperCase(), value: p.value, color: COLORS[i % COLORS.length] }));
+  items.push({ label: "Nakit", value: k.cash, color: "var(--line)" });
+  const bar = `<div class="alloc" role="img" aria-label="Portföy dağılımı">${items.map((x) => `<span title="${esc(x.label)}" style="width:${eq ? x.value / eq * 100 : 0}%;background:${x.color}"></span>`).join("")}</div>`;
+  const legend = `<div class="legend" style="margin-bottom:8px">${items.map((x) => `<span><i style="background:${x.color}"></i>${esc(x.label)} %${share(x.value)}</span>`).join("")}</div>`;
+  const coinRows = rows.map((p) => `<div class="wrow">
+      <span class="wbadge">${esc(p.symbol.toUpperCase().slice(0, 5))}</span>
+      <span class="wname"><button class="coin" data-coin="${esc(p.id)}">${esc(p.name)}</button><span>${qty(p.qty)} ${esc(p.symbol.toUpperCase())} · alış ${px(p.entry_price)} $</span></span>
+      <span class="wval wpnl ${cls(p.pnl_pct)}">${pct(p.pnl_pct)}<small>${usd(p.value - p.qty * p.entry_price)}</small></span>
+      <span class="wval">${usd(p.value)}<small>%${share(p.value)}</small></span></div>`).join("");
+  const cashRow = `<div class="wrow"><span class="wbadge cash">USDT</span><span class="wname"><b>Nakit</b><span>harcanmamış para</span></span>
+      <span class="wval wpnl"></span><span class="wval">${usd(k.cash)}<small>%${share(k.cash)}</small></span></div>`;
+  $("#wallet").innerHTML = bar + legend + `<div class="wallet">${coinRows}${cashRow}</div>`;
+  $("#wallet-total").innerHTML = `Toplam <b class="mono">${usd(eq)}</b>`;
+}
+
+function dayKey(ts) { return new Date(ts).toLocaleDateString("tr-TR", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" }); }
+
+function viewDaily() {
+  if (!D.runs.length) return `<div class="panel empty">İlk özet ilk çalışmadan sonra burada görünecek.</div>`;
+  const days = [];
+  for (const r of D.runs) {
+    const k = dayKey(r.ts);
+    let d = days.find((x) => x.k === k);
+    if (!d) { d = { k, ts: r.ts, runs: [] }; days.push(d); }
+    d.runs.push(r);
+  }
+  const prevEq = (d) => {
+    const first = d.runs[d.runs.length - 1];
+    const older = D.runs.find((r) => r.ts < first.ts);
+    return older ? older.equity : D.capital;
+  };
+  return days.map((d) => {
+    const end = d.runs[0].equity, start = prevEq(d), ch = (end / start - 1) * 100;
+    const dayNo = D.start_ts ? Math.floor((d.ts - D.start_ts) / 864e5) + 1 : null;
+    const head = new Date(d.ts).toLocaleDateString("tr-TR", { timeZone: TZ, weekday: "long", day: "numeric", month: "long" });
+    const entries = d.runs.map((r) => {
+      const acts = (r.executed || []).map((x) => `<span class="pill p-${x.action}">${VERD[x.action]} ${esc((x.symbol || "").toUpperCase())}${x.usd ? " " + Math.round(x.usd) + "$" : ""}</span>`).join(" ");
+      const evs = (r.events || []).filter((e) => !/^Test başladı/.test(e));
+      const time = new Date(r.ts).toLocaleTimeString("tr-TR", { timeZone: TZ, hour: "2-digit", minute: "2-digit" });
+      return `<article class="entry"><div class="meta"><b>${time}</b> · ${SLOT[r.slot] || ""} ${regimeChip(r.regime)} ${acts || '<span class="chip">işlem yok</span>'}</div>
+        <p>${esc(r.simple_summary || r.market_view)}</p>
+        ${evs.map((e) => `<div class="ev">${esc(e)}</div>`).join("")}${issuesBlock(r)}</article>`;
+    }).join("");
+    return `<section class="day"><h3>${head}${dayNo ? ` <span class="chip">Gün ${dayNo}</span>` : ""}
+        <span class="chip ${ch > 0 ? "on" : ch < 0 ? "off" : ""}">gün sonu ${usd(end)} · ${pct(ch, 2)}</span></h3>${entries}</section>`;
+  }).join("");
+}
+
+function viewShadow() {
+  const S = D.shadow;
+  if (!S || !S.picks.length) return `<div class="panel empty">Gölge takip bir sonraki çalışmadan itibaren dolmaya başlayacak.</div>`;
+  const G = S.groups;
+  const card = (lbl, g, note) => g ? `<div class="stat"><span class="lbl">${lbl}</span><span class="big ${cls(g.avg_ret_pct)}">${pct(g.avg_ret_pct, 2)}</span>
+      <span class="src">${g.n} seçim · ${g.open} hâlâ açık · %${Math.round(g.win_rate)} kârda</span>
+      <span class="src">aynı sürelerde BTC: <span class="${cls(g.avg_btc_pct)}">${pct(g.avg_btc_pct, 2)}</span></span><span class="src">${note}</span></div>` : "";
+  const rows = S.picks.map((x) => `<tr><td class="mono" style="white-space:nowrap">${when(x.ts)}</td><td>${coinBtn(x.coin_id, x.symbol)}</td>
+      <td><span class="pill p-${x.group === "al" ? "BUY" : "SKIP"}">${x.group === "al" ? "AL" : "GEÇ"}</span></td>
+      <td class="n ${cls(x.ret_pct)}"><b>${pct(x.ret_pct, 1)}</b></td><td class="n ${cls(x.btc_ret_pct)}">${pct(x.btc_ret_pct, 1)}</td>
+      <td>${x.open ? '<span class="chip">açık</span>' : '<span class="chip">kapandı</span>'}</td><td class="reason">${esc(x.reason)}</td></tr>`).join("");
+  return `<section class="panel"><h2>Seçimler doğru mu?</h2>
+    <p class="muted" style="margin-top:0;max-width:70ch">Claude'un "al" ve "geç" dediği her coin, gerçekten alınsın ya da alınmasın, kâğıt üzerinde ${S.size} $ ile alınmış sayılıp aynı stop ve kâr alma kurallarıyla takip ediliyor. Risk limitleri yüzünden para kullanılmasa bile seçimlerin isabeti buradan görülüyor.</p>
+    <div class="stats">${card("“Al” dediklerinin ortalaması", G.al, "Bunun “geç” dediklerinden yüksek olması iyi.")}${card("“Geç” dediklerinin ortalaması", G.gec, "Burası düşükse elemeler doğru.")}</div></section>
+    <section class="panel"><h2>Tüm seçimler</h2><div class="tablewrap"><table><thead><tr><th>Ne zaman</th><th>Coin</th><th>Karar</th><th class="n">Sonuç</th><th class="n">BTC aynı sürede</th><th>Durum</th><th>Gerekçe</th></tr></thead><tbody>${rows}</tbody></table></div></section>`;
+}
+
 function render() {
   document.querySelectorAll("nav.tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.v === tab)));
-  const V = { latest: viewLatest, pos: viewPositions, trades: viewTrades, runs: viewRuns, rules: viewRules };
-  $("#view").innerHTML = (V[tab] || viewLatest)();
+  const V = { ozet: viewDaily, latest: viewLatest, pos: viewPositions, trades: viewTrades, golge: viewShadow, runs: viewRuns, rules: viewRules };
+  $("#view").innerHTML = (V[tab] || viewDaily)();
 }
 
 document.querySelector("nav.tabs").addEventListener("click", (e) => {
