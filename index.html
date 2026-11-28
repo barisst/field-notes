@@ -432,8 +432,15 @@ function viewTrades() {
     T.map((t) => `<tr><td class="mono" style="white-space:nowrap">${when(t.ts)}</td><td>${coinBtn(t.id, t.symbol)}</td>
       <td><span class="pill p-${t.kind}">${KIND[t.kind] || t.kind}</span></td><td class="n">${px(t.price)}</td><td class="n">${usd(t.usd)}</td>
       <td class="n ${cls(t.pnl_usd)}">${t.pnl_usd == null ? "" : usd(t.pnl_usd) + `<div class="src">${pct(t.pnl_pct)}</div>`}</td>
-      <td class="reason">${esc(t.reason)}</td></tr>`).join("")
+      <td class="reason">${esc(t.reason)}${reviewOf(t)}</td></tr>`).join("")
   }</tbody></table></div></section>`;
+}
+
+function reviewOf(t) {
+  if (t.side !== "SELL") return "";
+  const j = (D.journal || []).find((x) => x.key === `${t.id}|${t.entry_ts}|${t.ts}`);
+  const mm = t.max_gain_pct != null ? `<div class="src">tutarken en iyi %${String(t.max_gain_pct).replace(".", ",")} · en kötü %${String(t.max_loss_pct).replace(".", ",")}</div>` : "";
+  return mm + (j ? `<div class="ev" style="margin-top:6px"><b>Değerlendirme (${esc(j.cause)}):</b> ${esc(j.lesson)}</div>` : "");
 }
 
 function viewRuns() {
