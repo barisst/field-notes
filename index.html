@@ -148,6 +148,16 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
 .wname span { font-size: 12.5px; color: var(--muted); font-family: var(--f-mono); }
 .wval { text-align: right; font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
 .wval small { display: block; font-size: 12px; color: var(--muted); }
+.wval small.up { color: var(--up); }
+.wval small.down { color: var(--down); }
+.verdict { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; padding: 14px 16px; border-radius: 10px; margin-bottom: 14px; background: var(--sunk); }
+.verdict.up { background: var(--up-soft); }
+.verdict.down { background: var(--down-soft); }
+.verdict .tag { font: 700 13px var(--f-body); letter-spacing: .08em; text-transform: uppercase; padding: 4px 10px; border-radius: 6px; background: var(--surface); }
+.verdict.up .tag, .verdict.up .amt { color: var(--up); }
+.verdict.down .tag, .verdict.down .amt { color: var(--down); }
+.verdict .amt { font: 600 22px var(--f-mono); }
+.verdict .ctx { color: var(--muted); font-size: 13px; }
 .alloc { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--sunk); margin-bottom: 8px; }
 .alloc span { display: block; height: 100%; }
 @media (max-width: 640px) { .wrow, .whead { grid-template-columns: 40px minmax(0, 1fr) minmax(0, 1fr); } .wrow .wcost, .wrow .wshare, .whead .wcost, .whead .wshare { display: none; } }
@@ -510,22 +520,31 @@ function wallet() {
   const legend = `<div class="legend" style="margin-bottom:8px">${items.map((x) => `<span><i style="background:${x.color}"></i>${esc(x.label)} %${share(x.value)}</span>`).join("")}</div>`;
   const cost = (p) => p.cost_usd != null ? p.cost_usd : p.qty * p.entry_price;
   const inv = rows.reduce((a, p) => a + cost(p), 0), now = rows.reduce((a, p) => a + p.value, 0);
+  // The one answer people look for first: am I up or down overall, against the starting money?
+  const total = eq - D.capital, state = total > 0.005 ? "up" : total < -0.005 ? "down" : "";
+  const benchUsd = D.capital * k.btc_pct / 100;
+  const verdict = `<div class="verdict ${state}">
+      <span class="tag">${state === "up" ? "Kârdasın" : state === "down" ? "Zarardasın" : "Başa baş"}</span>
+      <span class="amt">${total > 0 ? "+" : ""}${usd(total)} · ${pct(k.pnl_pct, 2)}</span>
+      <span class="ctx">Başlangıç ${usd(D.capital, 0)} → şu an ${usd(eq)}. Aynı parayla ${esc(M().bench)} alıp bekleseydin:
+        <b class="${cls(benchUsd)}">${benchUsd > 0 ? "+" : ""}${usd(benchUsd)}</b>${D.status === "pending" ? "" : benchUsd < total ? " (sen daha iyisin)" : benchUsd > total ? " (kıyas daha iyi)" : ""}</span>
+    </div>`;
   const sum = `<div class="wsum">
       <div><span>${esc(M().asset)}lere yatırılan</span><b>${usd(inv)}</b></div>
-      <div><span>Şu anki değeri</span><b>${usd(now)}</b></div>
-      <div><span>Açık pozisyonlarda K/Z</span><b class="${cls(now - inv)}">${usd(now - inv)} · ${inv ? pct((now / inv - 1) * 100) : "—"}</b></div>
-      <div><span>Kapanan işlemlerden K/Z</span><b class="${cls(k.realized_usd)}">${usd(k.realized_usd || 0)}</b></div>
+      <div><span>Bunların şu anki değeri</span><b>${usd(now)}</b></div>
+      <div><span>Açık pozisyonlarda K/Z</span><b class="${cls(now - inv)}">${now - inv > 0 ? "+" : ""}${usd(now - inv)} · ${inv ? pct((now / inv - 1) * 100) : "—"}</b></div>
+      <div><span>Kapanan işlemlerden K/Z</span><b class="${cls(k.realized_usd)}">${(k.realized_usd || 0) > 0 ? "+" : ""}${usd(k.realized_usd || 0)}</b></div>
     </div>`;
   const head = `<div class="whead"><span></span><span>${esc(M().asset)}</span><span class="wcost">Yatırılan</span><span>Şimdi · K/Z</span><span class="wshare">Pay</span></div>`;
   const coinRows = rows.map((p) => `<div class="wrow">
       <span class="wbadge">${esc(p.symbol.toUpperCase().slice(0, 5))}</span>
       <span class="wname"><button class="coin" data-coin="${esc(p.id)}">${esc(p.name)}</button><span>${qty(p.qty)} ${esc(p.symbol.toUpperCase())} · alış ${px(p.entry_price)} $ · şimdi ${px(p.last_price)} $</span></span>
       <span class="wval wcost">${usd(cost(p))}<small>${when(p.entry_ts)}</small></span>
-      <span class="wval"><b>${usd(p.value)}</b><small class="${cls(p.pnl_pct)}">${pct(p.pnl_pct)} · ${usd(p.value - cost(p))}</small></span>
+      <span class="wval"><b>${usd(p.value)}</b><small class="${cls(p.value - cost(p))}">${pct(p.pnl_pct)} · ${p.value - cost(p) > 0 ? "+" : ""}${usd(p.value - cost(p))}</small></span>
       <span class="wval wshare">%${share(p.value)}</span></div>`).join("");
   const cashRow = `<div class="wrow"><span class="wbadge cash">${market === "us" ? "USD" : "USDT"}</span><span class="wname"><b>Nakit</b><span>harcanmamış para</span></span>
       <span class="wval wcost"></span><span class="wval"><b>${usd(k.cash)}</b></span><span class="wval wshare">%${share(k.cash)}</span></div>`;
-  $("#wallet").innerHTML = sum + bar + legend + `<div class="wallet">${head}${coinRows}${cashRow}</div>`;
+  $("#wallet").innerHTML = verdict + sum + bar + legend + `<div class="wallet">${head}${coinRows}${cashRow}</div>`;
   $("#wallet-total").innerHTML = `Toplam <b class="mono">${usd(eq)}</b>`;
 }
 
