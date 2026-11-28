@@ -134,7 +134,13 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
 .issue { padding: 8px 12px; border-radius: 6px; background: var(--warn-soft); color: var(--warn); font-size: 13.5px; }
 
 .wallet { display: grid; gap: 0; }
-.wrow { display: grid; grid-template-columns: 44px minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.wrow { display: grid; grid-template-columns: 44px minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.8fr); gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.wsum { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.wsum div { background: var(--sunk); border-radius: 8px; padding: 10px 12px; display: grid; gap: 2px; }
+.wsum span { font-size: 12px; color: var(--muted); }
+.wsum b { font: 500 17px var(--f-mono); }
+.whead { display: grid; grid-template-columns: 44px minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.8fr); gap: 12px; font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.whead span:nth-child(n+3) { text-align: right; }
 .wrow:last-child { border-bottom: 0; }
 .wbadge { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font: 600 11px var(--f-mono); background: var(--accent-soft); color: var(--accent); letter-spacing: -.02em; overflow: hidden; }
 .wbadge.cash { background: var(--sunk); color: var(--muted); }
@@ -144,7 +150,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
 .wval small { display: block; font-size: 12px; color: var(--muted); }
 .alloc { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--sunk); margin-bottom: 8px; }
 .alloc span { display: block; height: 100%; }
-@media (max-width: 560px) { .wrow { grid-template-columns: 40px minmax(0, 1fr) minmax(0, 1fr); } .wrow .wpnl { display: none; } }
+@media (max-width: 640px) { .wrow, .whead { grid-template-columns: 40px minmax(0, 1fr) minmax(0, 1fr); } .wrow .wcost, .wrow .wshare, .whead .wcost, .whead .wshare { display: none; } }
 
 .day { display: grid; gap: 10px; }
 .day h3 { margin: 0; font: 600 18px var(--f-display); display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; }
@@ -238,7 +244,7 @@ const safeUrl = (u) => /^https?:\/\//i.test(u || "") ? u : null;
 const REG = { RISK_ON: ["on", "Risk açık"], NEUTRAL: ["neu", "Nötr"], RISK_OFF: ["off", "Risk kapalı"] };
 const KIND = { entry: "ALIM", stop: "STOP", trail: "İZ STOP", breakeven: "BAŞA BAŞ", take_profit: "KÂR AL", time: "ZAMAN", signal: "SATIŞ", trim: "AZALT" };
 const VERD = { BUY: "AL", SELL: "SAT", TRIM: "AZALT", HOLD: "TUT", SKIP: "GEÇ" };
-const SLOT = { sabah: "Sabah", "akşam": "Akşam", gece: "Gece", "açılış": "Açılış", "kapanış": "Kapanış" };
+const SLOT = { sabah: "Sabah", "akşam": "Akşam", gece: "Gece", "açılış": "Açılış", "kapanış": "Kapanış", "hızlı": "Hızlı tarama" };
 
 function regimeChip(r) { const [c, t] = REG[r?.name] || ["", "—"]; return `<span class="chip ${c}">${t}</span>`; }
 
@@ -502,14 +508,24 @@ function wallet() {
   items.push({ label: "Nakit", value: k.cash, color: "var(--line)" });
   const bar = `<div class="alloc" role="img" aria-label="Portföy dağılımı">${items.map((x) => `<span title="${esc(x.label)}" style="width:${eq ? x.value / eq * 100 : 0}%;background:${x.color}"></span>`).join("")}</div>`;
   const legend = `<div class="legend" style="margin-bottom:8px">${items.map((x) => `<span><i style="background:${x.color}"></i>${esc(x.label)} %${share(x.value)}</span>`).join("")}</div>`;
+  const cost = (p) => p.cost_usd != null ? p.cost_usd : p.qty * p.entry_price;
+  const inv = rows.reduce((a, p) => a + cost(p), 0), now = rows.reduce((a, p) => a + p.value, 0);
+  const sum = `<div class="wsum">
+      <div><span>${esc(M().asset)}lere yatırılan</span><b>${usd(inv)}</b></div>
+      <div><span>Şu anki değeri</span><b>${usd(now)}</b></div>
+      <div><span>Açık pozisyonlarda K/Z</span><b class="${cls(now - inv)}">${usd(now - inv)} · ${inv ? pct((now / inv - 1) * 100) : "—"}</b></div>
+      <div><span>Kapanan işlemlerden K/Z</span><b class="${cls(k.realized_usd)}">${usd(k.realized_usd || 0)}</b></div>
+    </div>`;
+  const head = `<div class="whead"><span></span><span>${esc(M().asset)}</span><span class="wcost">Yatırılan</span><span>Şimdi · K/Z</span><span class="wshare">Pay</span></div>`;
   const coinRows = rows.map((p) => `<div class="wrow">
       <span class="wbadge">${esc(p.symbol.toUpperCase().slice(0, 5))}</span>
-      <span class="wname"><button class="coin" data-coin="${esc(p.id)}">${esc(p.name)}</button><span>${qty(p.qty)} ${esc(p.symbol.toUpperCase())} · alış ${px(p.entry_price)} $</span></span>
-      <span class="wval wpnl ${cls(p.pnl_pct)}">${pct(p.pnl_pct)}<small>${usd(p.value - p.qty * p.entry_price)}</small></span>
-      <span class="wval">${usd(p.value)}<small>%${share(p.value)}</small></span></div>`).join("");
+      <span class="wname"><button class="coin" data-coin="${esc(p.id)}">${esc(p.name)}</button><span>${qty(p.qty)} ${esc(p.symbol.toUpperCase())} · alış ${px(p.entry_price)} $ · şimdi ${px(p.last_price)} $</span></span>
+      <span class="wval wcost">${usd(cost(p))}<small>${when(p.entry_ts)}</small></span>
+      <span class="wval"><b>${usd(p.value)}</b><small class="${cls(p.pnl_pct)}">${pct(p.pnl_pct)} · ${usd(p.value - cost(p))}</small></span>
+      <span class="wval wshare">%${share(p.value)}</span></div>`).join("");
   const cashRow = `<div class="wrow"><span class="wbadge cash">${market === "us" ? "USD" : "USDT"}</span><span class="wname"><b>Nakit</b><span>harcanmamış para</span></span>
-      <span class="wval wpnl"></span><span class="wval">${usd(k.cash)}<small>%${share(k.cash)}</small></span></div>`;
-  $("#wallet").innerHTML = bar + legend + `<div class="wallet">${coinRows}${cashRow}</div>`;
+      <span class="wval wcost"></span><span class="wval"><b>${usd(k.cash)}</b></span><span class="wval wshare">%${share(k.cash)}</span></div>`;
+  $("#wallet").innerHTML = sum + bar + legend + `<div class="wallet">${head}${coinRows}${cashRow}</div>`;
   $("#wallet-total").innerHTML = `Toplam <b class="mono">${usd(eq)}</b>`;
 }
 
